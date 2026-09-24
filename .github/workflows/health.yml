@@ -1,0 +1,36 @@
+# Every five minutes, ask the Ascendo CRM how it is and have it post to #health.
+#
+# Lives in its own public repo because Actions minutes are free here and not in
+# the private app repo, where a five-minute schedule would cost ~8,600 minutes a
+# month against 2,000 free. Nothing here is secret: the URL is public and the
+# credentials are encrypted repository secrets.
+#
+# GitHub runs */5 on a best-effort basis; a run can be several minutes late.
+name: health
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+permissions: {}
+concurrency: { group: health, cancel-in-progress: true }
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check and post
+        env:
+          HEALTH_SECRET: ${{ secrets.HEALTH_SECRET }}
+          DISCORD_WEBHOOK_HEALTH: ${{ secrets.DISCORD_WEBHOOK_HEALTH }}
+        run: |
+          code=$(curl -s -o /tmp/body -w "%{http_code}" --max-time 60 \
+            -H "Authorization: Bearer $HEALTH_SECRET" \
+            "https://ascendoacademy.com/api/health?post=1" || echo 000)
+          echo "health endpoint: $code"
+          # 200 and 503 both mean the app answered and posted its own report.
+          # Anything else means it could not, so say so from here instead —
+          # an app that is down cannot announce that it is down.
+          if [ "$code" != 200 ] && [ "$code" != 503 ]; then
+            curl -s -H "Content-Type: application/json" -X POST "$DISCORD_WEBHOOK_HEALTH" \
+              -d "{\"embeds\":[{\"title\":\"🔴 CRM unreachable\",\"description\":\"/api/health answered **$code** — the app could not report its own status.\",\"color\":14239035}]}"
+          fi

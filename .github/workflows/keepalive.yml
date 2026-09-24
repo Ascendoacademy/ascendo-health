@@ -1,0 +1,17 @@
+# GitHub switches off scheduled workflows in a public repo after 60 days with
+# no commits. This repo is never meant to change, so re-enable the health
+# schedule monthly rather than let it quietly stop.
+name: keepalive
+on:
+  schedule:
+    - cron: "0 12 1 * *"
+  workflow_dispatch:
+permissions:
+  actions: write
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/health.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}
