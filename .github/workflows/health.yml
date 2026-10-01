@@ -1,5 +1,5 @@
-# Posts the Ascendo CRM's status to #health every five minutes, and every
-# fifteen switches Google Meet recording on for the next few hours of meetings.
+# Posts the Ascendo CRM's status to #health every five minutes, and books the
+# meeting notetaker into upcoming and running meetings on the same beat.
 #
 # GitHub's own */5 schedule is best-effort and, on a quiet repo, can go an hour
 # or more without firing — which is what happened when this was first set up.
@@ -45,16 +45,14 @@ jobs:
               curl -s -H "Content-Type: application/json" -X POST "$DISCORD_WEBHOOK_HEALTH" \
                 -d "{\"embeds\":[{\"title\":\"🔴 CRM unreachable\",\"description\":\"/api/health answered **$code** — the app could not report its own status.\",\"color\":14239035}]}" || true
             fi
-            # Every fifteen minutes, switch Meet recording on for the next six
-            # hours of meetings. The app's daily sync does this a day ahead; this
-            # catches a meeting put on the calendar this afternoon for tonight.
-            # Calendars and Meet only — it never wakes the database.
-            if [ $(( $(date +%s) / 300 % 3 )) -eq 0 ]; then
-              arm=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
-                -H "Authorization: Bearer $HEALTH_SECRET" \
-                "https://ascendoacademy.com/api/cron/arm?hours=6" || echo 000)
-              echo "$(date -u +%H:%M:%S) arm meetings: $arm"
-            fi
+            # Book the meeting notetaker: every Meet meeting on our calendars
+            # in the next six hours, and any meeting running right now that
+            # has none (an instant meeting is on no calendar). Calendars, Meet
+            # and Recall only — it never wakes the database.
+            arm=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
+              -H "Authorization: Bearer $HEALTH_SECRET" \
+              "https://ascendoacademy.com/api/cron/arm?hours=6" || echo 000)
+            echo "$(date -u +%H:%M:%S) book notetakers: $arm"
             # Sleep to the next five-minute mark, so a slow check does not drift.
             sleep $(( 300 - $(date +%s) % 300 ))
           done
