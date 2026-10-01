@@ -1,6 +1,5 @@
-# Posts the Ascendo CRM's status to #health every five minutes and books the
-# meeting notetaker into upcoming meetings on the same beat; every twenty
-# seconds it checks for meetings running now that have no notetaker.
+# Posts the Ascendo CRM's status to #health every five minutes, and books the
+# meeting notetaker into upcoming and running meetings on the same beat.
 #
 # GitHub's own */5 schedule is best-effort and, on a quiet repo, can go an hour
 # or more without firing — which is what happened when this was first set up.
@@ -28,43 +27,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 358
     steps:
-      - name: Ping every five minutes, check for live meetings every twenty seconds
+      - name: Ping every five minutes
         env:
           HEALTH_SECRET: ${{ secrets.HEALTH_SECRET }}
           DISCORD_WEBHOOK_HEALTH: ${{ secrets.DISCORD_WEBHOOK_HEALTH }}
         run: |
           end=$(( $(date +%s) + 350*60 ))
-          last_full=0
           while [ "$(date +%s)" -lt "$end" ]; do
-            now=$(date +%s)
-            if [ $(( now - last_full )) -ge 300 ]; then
-              last_full=$now
-              code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
-                -H "Authorization: Bearer $HEALTH_SECRET" \
-                "https://ascendoacademy.com/api/health?post=1" || echo 000)
-              echo "$(date -u +%H:%M:%S) health endpoint: $code"
-              # 200 and 503 both mean the app answered and posted its own report.
-              # Anything else means it could not, so say so from here instead —
-              # an app that is down cannot announce that it is down.
-              if [ "$code" != 200 ] && [ "$code" != 503 ]; then
-                curl -s -H "Content-Type: application/json" -X POST "$DISCORD_WEBHOOK_HEALTH" \
-                  -d "{\"embeds\":[{\"title\":\"🔴 CRM unreachable\",\"description\":\"/api/health answered **$code** — the app could not report its own status.\",\"color\":14239035}]}" || true
-              fi
-              # Full notetaker pass: every Meet meeting on our calendars in the
-              # next six hours booked, cancelled ones called off.
-              arm=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
-                -H "Authorization: Bearer $HEALTH_SECRET" \
-                "https://ascendoacademy.com/api/cron/arm?hours=6" || echo 000)
-              echo "$(date -u +%H:%M:%S) book notetakers: $arm"
-            else
-              # Quick pass: a meeting running right now with no notetaker (an
-              # instant meeting is on no calendar) gets one sent straight in.
-              # Meet and Recall only — it never wakes the database.
-              curl -s -o /dev/null --max-time 15 \
-                -H "Authorization: Bearer $HEALTH_SECRET" \
-                "https://ascendoacademy.com/api/cron/arm?live=1" || true
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
+              -H "Authorization: Bearer $HEALTH_SECRET" \
+              "https://ascendoacademy.com/api/health?post=1" || echo 000)
+            echo "$(date -u +%H:%M:%S) health endpoint: $code"
+            # 200 and 503 both mean the app answered and posted its own report.
+            # Anything else means it could not, so say so from here instead —
+            # an app that is down cannot announce that it is down.
+            if [ "$code" != 200 ] && [ "$code" != 503 ]; then
+              curl -s -H "Content-Type: application/json" -X POST "$DISCORD_WEBHOOK_HEALTH" \
+                -d "{\"embeds\":[{\"title\":\"🔴 CRM unreachable\",\"description\":\"/api/health answered **$code** — the app could not report its own status.\",\"color\":14239035}]}" || true
             fi
-            sleep 20
+            # Book the meeting notetaker: every Meet meeting on our calendars
+            # in the next six hours, and any meeting running right now that
+            # has none (an instant meeting is on no calendar). Calendars, Meet
+            # and Recall only — it never wakes the database.
+            arm=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
+              -H "Authorization: Bearer $HEALTH_SECRET" \
+              "https://ascendoacademy.com/api/cron/arm?hours=6" || echo 000)
+            echo "$(date -u +%H:%M:%S) book notetakers: $arm"
+            # Sleep to the next five-minute mark, so a slow check does not drift.
+            sleep $(( 300 - $(date +%s) % 300 ))
           done
       - name: Start the next loop
         if: always()
